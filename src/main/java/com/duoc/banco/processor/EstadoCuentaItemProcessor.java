@@ -18,13 +18,7 @@ public class EstadoCuentaItemProcessor implements ItemProcessor<MovimientoCuenta
     @Override
     public EstadoCuenta process(MovimientoCuenta movimiento) {
         // Se suma el monto del movimiento a los valores acumulados de la cuenta
-        try {
-            sumarMovimiento(movimiento);
-        } catch(MovimientoCuentaNoValidoException e){
-            System.out.println("Error al procesar movimiento con ID " + movimiento.getId() + ": " + e.getMessage()
-                + " (ID de cuenta: " + movimiento.getCuentaId() + ")");
-            return null;
-        }
+        sumarMovimiento(movimiento);
         
         // Si un movimiento es el ultimo de la lista para una cuenta, se retorna el estado de 
         // cuenta acumulado
