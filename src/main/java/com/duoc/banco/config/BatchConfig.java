@@ -1,21 +1,36 @@
 package com.duoc.banco.config;
 
+import java.time.format.DateTimeParseException;
+
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
-import org.springframework.batch.core.step.builder.ChunkOrientedStepBuilder;
+import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.batch.infrastructure.item.ItemReader;
 import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
 import org.springframework.batch.infrastructure.item.support.SingleItemPeekableItemReader;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import com.duoc.banco.exception.InteresNoValidoException;
+import com.duoc.banco.exception.MovimientoCuentaNoValidoException;
 import com.duoc.banco.listener.BancoStepExecutionListener;
-import com.duoc.banco.listener.JobCompletionListener;
+import com.duoc.banco.listener.job.EstadoCuentaCompletionListener;
+import com.duoc.banco.listener.job.InteresJobCompletionListener;
+import com.duoc.banco.listener.job.TransaccionJobCompletionListener;
+import com.duoc.banco.listener.skip.EstadoCuentaSkipListener;
+import com.duoc.banco.listener.skip.InteresSkipListener;
+import com.duoc.banco.listener.skip.MovimientoCuentaSkipListener;
+import com.duoc.banco.listener.skip.TransaccionSkipListener;
 import com.duoc.banco.model.EstadoCuenta;
 import com.duoc.banco.model.Interes;
 import com.duoc.banco.model.MovimientoCuenta;
@@ -33,18 +48,27 @@ public class BatchConfig {
         ItemReader<Transaccion> transaccionItemReader,
         ItemProcessor<Transaccion, Transaccion> transaccionItemProcessor,
         ItemWriter<Transaccion> transaccionItemWriter,
-        BancoStepExecutionListener stepListener
+        @Qualifier("transaccionTaskExecutor") ThreadPoolTaskExecutor taskExecutor,
+        BancoStepExecutionListener stepListener,
+        TransaccionSkipListener skipListener
     ) {
-        return new ChunkOrientedStepBuilder<Transaccion, Transaccion>(
-            "transaccionStep",
-            jobRepository,
-            10
-        )
-        .reader(transaccionItemReader)
-        .processor(transaccionItemProcessor)
-        .writer(transaccionItemWriter)
-        .listener(stepListener)
-        .build();
+        return new StepBuilder("transaccionStep", jobRepository)
+            .<Transaccion, Transaccion>chunk(5, transactionManager)
+            .reader(transaccionItemReader)
+            .processor(transaccionItemProcessor)
+            .writer(transaccionItemWriter)
+            .faultTolerant()
+            .skipLimit(5)
+            .skip(FlatFileParseException.class)
+            .skip(DateTimeParseException.class)
+            .skip(NumberFormatException.class)
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(TransientDataAccessException.class)
+            .listener(stepListener)
+            .listener(skipListener)
+            .taskExecutor(taskExecutor)
+            .build();
     }
 
     // Job para procesamiento de transacciones
@@ -52,7 +76,7 @@ public class BatchConfig {
     public Job transaccionJob(
         JobRepository jobRepository,
         Step transaccionStep,
-        JobCompletionListener jobCompletionListener
+        TransaccionJobCompletionListener jobCompletionListener
     ) {
         return new JobBuilder("transaccionJob", jobRepository)
         .start(transaccionStep)
@@ -68,18 +92,28 @@ public class BatchConfig {
         ItemReader<Interes> interesItemReader,
         ItemProcessor<Interes, Interes> interesItemProcessor,
         ItemWriter<Interes> interesItemWriter,
-        BancoStepExecutionListener stepListener
+        @Qualifier("interesTaskExecutor") ThreadPoolTaskExecutor taskExecutor,
+        BancoStepExecutionListener stepListener,
+        InteresSkipListener skipListener
     ) {
-        return new ChunkOrientedStepBuilder<Interes, Interes>(
-            "interesStep",
-            jobRepository,
-            10
-        )
-        .reader(interesItemReader)
-        .processor(interesItemProcessor)
-        .writer(interesItemWriter)
-        .listener(stepListener)
-        .build();
+
+        return new StepBuilder("interesStep", jobRepository)
+            .<Interes, Interes>chunk(5, transactionManager)
+            .reader(interesItemReader)
+            .processor(interesItemProcessor)
+            .writer(interesItemWriter)
+            .faultTolerant()
+            .skipLimit(5)
+            .skip(InteresNoValidoException.class)
+            .skip(FlatFileParseException.class)
+            .skip(NumberFormatException.class)
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(TransientDataAccessException.class)
+            .listener(stepListener)
+            .listener(skipListener)
+            //.taskExecutor(taskExecutor)
+            .build();
     }
 
     // Job para procesamiento de intereses
@@ -87,7 +121,7 @@ public class BatchConfig {
     public Job interesJob(
         JobRepository jobRepository,
         Step interesStep,
-        JobCompletionListener jobCompletionListener
+        InteresJobCompletionListener jobCompletionListener
     ) {
         return new JobBuilder("interesJob", jobRepository)
         .start(interesStep)
@@ -95,7 +129,11 @@ public class BatchConfig {
         .build();
     }
 
-    // Paso 1: Leer movimientos de cuentas desde el CSV y guardarlos en 
+    //-------------------------------------------------------------------
+    // Job para procesar movimientos y generar estados de cuenta anuales
+    //-------------------------------------------------------------------
+
+    // Step 1: Leer movimientos de cuentas desde el CSV y guardarlos en 
     // la tabla temporal MOVIMIENTO_CUENTA en base de datos
     @Bean
     public Step leerYGuardarMovimientosDeCuentaStep(
@@ -103,19 +141,30 @@ public class BatchConfig {
         PlatformTransactionManager transactionManager,
         FlatFileItemReader<MovimientoCuenta> movimientoCuentaItemReader,
         ItemWriter<MovimientoCuenta> movimientoCuentaItemWriter,
-        BancoStepExecutionListener bancoStepListener
+        @Qualifier("movimientoCuentaTaskExecutor") ThreadPoolTaskExecutor taskExecutor,
+        BancoStepExecutionListener stepListener,
+        MovimientoCuentaSkipListener skipListener
     ){
-        return new ChunkOrientedStepBuilder<MovimientoCuenta, MovimientoCuenta>(
-            "leerYGuardarMovimientosDeCuentaStep",
-            jobRepository,
-            10)
+       return new StepBuilder("leerYGuardarMovimientosDeCuentaStep", jobRepository)
+            .<MovimientoCuenta, MovimientoCuenta>chunk(5, transactionManager)
             .reader(movimientoCuentaItemReader)
             .writer(movimientoCuentaItemWriter)
-            .listener(bancoStepListener)
+            .faultTolerant()
+            .skipLimit(5)
+            .skip(FlatFileParseException.class)
+            .skip(DateTimeParseException.class)
+            .skip(NumberFormatException.class)
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(TransientDataAccessException.class)
+            .listener(stepListener)
+            .listener(skipListener)
+            .taskExecutor(taskExecutor)
             .build();
+    
     }
 
-    // Paso 2: Leer movimientos de cuentas desde la tabla temporal MOVIMIENTO_CUENTA,
+    // Step 2: Leer movimientos de cuentas desde la tabla temporal MOVIMIENTO_CUENTA,
     // ordenarlos por cuenta_id y procesarlos para generar el estado de cuenta
     @Bean
     public Step generarEstadosDeCuentaStep(
@@ -124,7 +173,8 @@ public class BatchConfig {
         SingleItemPeekableItemReader<MovimientoCuenta> movimientoCuentaPeekableReader,
         EstadoCuentaItemProcessor estadoCuentaItemProcessor,
         ItemWriter<EstadoCuenta> estadoCuentaItemWriter,
-        BancoStepExecutionListener bancoStepListener
+        BancoStepExecutionListener bancoStepListener,
+        EstadoCuentaSkipListener skipListener
     ){
         ItemReader<MovimientoCuenta> reader = () -> {
             MovimientoCuenta movActual = movimientoCuentaPeekableReader.read();
@@ -137,24 +187,33 @@ public class BatchConfig {
             return movActual;
         };
 
-        return new ChunkOrientedStepBuilder<MovimientoCuenta, EstadoCuenta>(
-            "generarEstadosDeCuentaStep",
-            jobRepository,
-            10)
+        return new StepBuilder("generarEstadosDeCuentaStep", jobRepository)
+            .<MovimientoCuenta, EstadoCuenta>chunk(5, transactionManager)
             .reader(reader)
             .stream(movimientoCuentaPeekableReader)
             .processor(estadoCuentaItemProcessor)
             .writer(estadoCuentaItemWriter)
+            .faultTolerant()
+            .skipLimit(5)
+            .skip(MovimientoCuentaNoValidoException.class)
+            .skip(FlatFileParseException.class)
+            .skip(DateTimeParseException.class)
+            .skip(NumberFormatException.class)
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(TransientDataAccessException.class)
             .listener(bancoStepListener)
+            .listener(skipListener)
             .build();
     }
 
+    // Job para procesar movimientos y generar estados de cuenta
     @Bean
     public Job generarEstadosDeCuentaJob(
         JobRepository jobRepository,
         Step leerYGuardarMovimientosDeCuentaStep,
         Step generarEstadosDeCuentaStep,
-        JobCompletionListener jobCompletionListener
+        EstadoCuentaCompletionListener jobCompletionListener
     ){
         return new org.springframework.batch.core.job.builder.JobBuilder(
             "generarEstadosDeCuentaJob",
