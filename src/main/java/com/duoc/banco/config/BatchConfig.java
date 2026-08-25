@@ -112,7 +112,7 @@ public class BatchConfig {
             .retry(TransientDataAccessException.class)
             .listener(stepListener)
             .listener(skipListener)
-            //.taskExecutor(taskExecutor)
+            .taskExecutor(taskExecutor)
             .build();
     }
 
