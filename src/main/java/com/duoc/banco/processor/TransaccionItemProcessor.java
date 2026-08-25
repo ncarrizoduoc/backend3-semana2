@@ -20,9 +20,17 @@ public class TransaccionItemProcessor implements ItemProcessor<Transaccion, Tran
             observaciones.add("Monto no válido (igual a cero)");
         }
 
+        if (transaccion.getMonto() == null){
+            observaciones.add("La transaccion no tiene un monto asociado");
+        }
+
         // Validar que la fecha no sea posterior a la fecha actual
         if (transaccion.getFecha().isAfter(java.time.LocalDate.now())) {
             observaciones.add("Fecha no válida (mayor a la fecha actual)");
+        }
+
+        if (transaccion.getFecha().getYear() < 1900){
+            observaciones.add("Fecha no válida: Anterior al año 1900");
         }
 
         // Validar que el tipo de transacción sea "DEBITO" o "CREDITO"

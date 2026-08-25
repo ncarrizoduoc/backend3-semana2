@@ -21,6 +21,15 @@ public class InteresItemProcessor implements ItemProcessor<Interes, Interes> {
         // Convertir nombre a mayúsculas
         interes.setNombre(interes.getNombre().toUpperCase());
 
+        // Validar que el nombre del cliente no sea un texto en blanco (solo espacios) o null
+        if (interes.getNombre().isBlank() || interes.getNombre().isEmpty()){
+            throw new InteresNoValidoException(
+                "Error en cuenta con ID " +
+                interes.getCuentaId() +
+                ": El nombre del cliente es un texto en blanco o null"
+            );
+        }
+
         // Validar que la edad del cliente sea mayor a 18
         if (interes.getEdad() < 18) {
             throw new InteresNoValidoException(
@@ -46,7 +55,7 @@ public class InteresItemProcessor implements ItemProcessor<Interes, Interes> {
             throw new InteresNoValidoException(
                 "Error en cuenta con ID " +
                 interes.getCuentaId() +
-                ": Tipo de interés no válido");
+                ": Tipo de cuenta no válido");
         }
         Integer nuevoSaldo = (int) Math.round(interes.getSaldoInicial() * (1 + tasa));
         interes.setSaldoFinal(nuevoSaldo);
