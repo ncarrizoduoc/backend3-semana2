@@ -37,8 +37,16 @@ Contiene las clases de configuración de los Jobs, Readers y Writers:
 - **`InteresItemWriter`**: Clase que configura el guardado de objetos `Interes` en la tabla `INTERESES` de la base de datos.
 - **`MovimientoCuentaItemReader`**: Clase que configura la lectura de movimientos de cuenta desde el archivo `cuentas_anuales.csv`.
 - **`MovimientoCuentaItemWriter`**: Clase que configura el guardado de objetos `MovimientoCuenta` en la tabla `MOVIMIENTO_CUENTA` de la base de datos.
+- **`TaskExecutorConfig`**: Clase que crea los Beans `TaskExecutor`, encargados de la ejecución multihilo de los Steps.
 - **`TransaccionItemReader`**: Clase que configura la lectura de datos de transacciones desde el archivo `transacciones.csv`.
 - **`TransaccionItemWriter`**: Clase que configura el guardado de objetos `Transaccion` en la tabla `TRANSACCIONES` de la base de datos.
+
+### Package config/shutdown
+Contiene clases encargadas de detener los TaskExecutor:
+
+- **`InteresExecutorShutdown`**: Clase que configura la detención del Bean `interesTaskExecutor`.
+- **`MovimientoCuentaExecutorShutdown`**: Clase que configura la detención del Bean `movimientoCuentaTaskExecutor`.
+- **`TransaccionExecutorShutdown`**: Clase que configura la detención del Bean `transaccionTaskExecutor`.
 
 ### Package processor
 Contiene las clases que definen el procesamiento de datos durante los Jobs:
@@ -48,17 +56,31 @@ Contiene las clases que definen el procesamiento de datos durante los Jobs:
 - **`TransaccionItemProcessor`**: Clase que procesa las transacciones, añadiendo observaciones si detecta anomalías en los datos de la transacción o el titular de la cuenta.
 
 ### Package listener
-Contiene listeners que registran, en consola, la ejecución de Steps y Jobs:
+Contiene listeners que registran, en consola, la ejecución de Steps, Jobs y skips:
 
 - **`BancoStepExecutionListener`**: Imprime un mensaje en consola al iniciar y al finalizar un Step.
-- **`JobCompletionListener`**: Imprime un mensaje en consola al iniciar y finalizar un Job.
+
+### Package listener/job
+Contiene listeners que registran, en consola, la ejecución de Jobs
+
+- **`EstadoCuentaCompletionListener`**: Imprime un mensaje en consola al iniciar y finalizar el Job `generarEstadosDeCuentaJob`.
+- **`InteresJobCompletionListener`**: Imprime un mensaje en consola al iniciar y finalizar el Job `InteresJob`.
+- **`TransaccionJobCompletionListener`**: Imprime un mensaje en consola al iniciar y finalizar el Job `TransaccionJob`.
+
+### Package listener/skip
+Contiene listeners que registran, en consola, cuando se produce un skip durante un Step:
+
+- **`EstadoCuentaSkipListener`**: Imprime un mensaje en consola cuando se produce un skip durante el Step `EstadoCuentaStep`.
+- **`IntresSkipListener`**: Imprime un mensaje en consola cuando se produce un skip durante el Step `InteresStep`.
+- **`MovimientoCuentaSkipListener`**: Imprime un mensaje en consola cuando se produce un skip durante el Step `MovimientoCuentaStep`.
+- **`TransaccionSkipListener`**: Imprime un mensaje en consola cuando se produce un skip durante el Step `TransaccionStep`.
+
 
 ### Package exception
 Contiene excepciones personalizadas para ser usadas por las clases del package `processor` durante el procesamiento de datos:
 
 - **`InteresNoValidoException`**
 - **`MovimientoCuentaNoValidoException`**
-- **`TransaccionNoValidaException`**
 
 # Como utilizar
 Para poder utilizar este proyecto, debes modificar los parámetros de conexión a la base de datos en `application.properties` para ajustarlos a tu base de datos. Luego, deberás ejecutar el proyecto (main class: `BancoApplication.java`).
